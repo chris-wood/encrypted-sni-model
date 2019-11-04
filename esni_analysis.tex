@@ -417,7 +417,10 @@ shortcomings.
 
 \section{Core Protocol} \label{sec:core} % Basic anonymous DH model (handshake secret integrity)
 
+\todo[inline]{This is still work in progress undergoing refinements.}
+
 At its core, ESNI is a protocol between a client and server that aims to provide the following guarantees:
+
 %
 \begin{itemize}
   \item {\bf Client Secrecy}. TLS handshake secret known by entity which has the private handshake key 
@@ -686,8 +689,6 @@ $\ \ \ \ \ \ \var{attacker}(\var{secret{\_}sni}(\var{origin{\_}host})); $\\
 $\ \ \ \ \ \ \kwl{event}(\kwe{ESNIClientLeak}(\var{h}, \var{gs}, \var{p})); $\\
 $\ \ \ \ \ \ \kwl{event}(\kwe{ESNIServerLeak}(\var{h}, \var{gs}, \var{tkt})). $\\
 $ $\\
-$\textit{(* query log:bitstring; event(Reachable(log)). *)} $\\
-$ $\\
 $\kwl{const}\ \kwc{C}{:}\var{prin}. $\\
 $\kwl{process} $\\
 $\ \ \ \ \ \kwl{new}\ \var{keyA}{:}\var{ae{\_}key}; $\\
@@ -940,8 +941,6 @@ $\kwl{query}\ \var{origin{\_}host}{:}\var{prin}, \var{h}{:}\kwt{bitstring}, \var
 $\ \ \ \ \ \ \var{attacker}(\var{secret{\_}sni}(\var{origin{\_}host})); $\\
 $\ \ \ \ \ \ \kwl{event}(\kwe{ESNIClientLeak}(\var{h}, \var{gs}, \var{p})); $\\
 $\ \ \ \ \ \ \kwl{event}(\kwe{ESNIServerLeak}(\var{h}, \var{gs}, \var{tkt})). $\\
-$ $\\
-$\textit{(* query log:bitstring; event(Reachable(log)). *)} $\\
 $ $\\
 $\kwl{const}\ \kwc{C}{:}\var{prin}. $\\
 $\kwl{process} $\\

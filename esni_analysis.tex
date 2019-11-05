@@ -124,7 +124,7 @@
 \newtheorem{definition}{Definition}[section]
 
 \title{Formal Analysis of Encrypted SNI}
-\author{Karthik Barghavan, Eric Rescorla, Christopher A. Wood}
+\author{Karthikeyan Bhargavan, Eric Rescorla, Christopher A. Wood}
 \date{\today}
 
 \begin{document}
@@ -333,24 +333,25 @@ the certificate. This attack flow is shown in Figure \ref{fig:hrr-attack}.
    \mess{\emph{ClientHello2:} ($g^{a}, \mathsf{HPKESeal}(\ksni, (dummysni, dummynonce), g^{a})$)}{at}{sr}
    \nextlevel    
    \action*{\laction{Derive Keys:}{
-     ss = \dh{g^a}{g^y} \\
+      ss = \dh{g^a}{g^y} \\
+      hk = \kdf{ss} \\
    }}{sr}
-   \nextlevel[4]
+   \nextlevel[5]
    \mess{\emph{Second Flight:} SH, $\mathsf{Enc}(ss, (EE=dummynonce, CERT=Cert, ...))$}{sr}{at}
    \nextlevel[2]
    \action*{\laction{Derive Keys:}{
-     ss = \dh{g^a}{g^y} \\
+      ss = \dh{g^a}{g^y} \\
+      hk = \kdf{ss} \\   
    }}{at}
    \nextlevel[4]
    \action*{\laction{Decrypt Cert:}{
      CERT = \mathsf{Dec}(ss, ...) \\
    }}{at}
    \nextlevel[4]
-
     \end{msc}
  }
 \end{center}
-\caption{Active HRR hijack mismatch.}
+\caption{Active HRR attack.}
 \label{fig:hrr-attack}
 \end{figure}
 
@@ -369,17 +370,50 @@ intercepted by an on-path adversary, who then attaches a ticket and PSK binder o
 and forwards the result to the original target server. If servers check whether or not the SNI
 obtained from the ESNI value and the ticket match and change behavior accordingly, e.g.,
 by aborting the connection, this introduces an oracle for adversaries to learn information about
-client SNIs.
+client SNIs. This attack, which is shown in Figure \ref{fig:ticket-attack}, is also a mix-and-match attack.
 
-In general, the problems above seem to stem from the same problems: (1) ESNI contents are not
-fully bound to the ClientHello, and (2) ESNI contents are not fully bound to the rest of the TLS
-handshake. In the following section, we describe an ideal ESNI protocol that addresses these
-shortcomings.
+\begin{figure}[th!]
+ \begin{center}
+ \resizebox{0.8\columnwidth}{!}{\begin{msc}{}
+   \drawframe{none}
+   \setlength{\topheaddist}{0cm}
+   \setlength{\instdist}{10.5cm}
+   \setlength{\instwidth}{1.75cm}
+   \declinst{cl}{}{Client $C$}
+   \declinst{at}{}{Att. $A$}
+   \declinst{sr}{}{Server $S$}
+   \nextlevel[2]
+   \nextlevel
+   \mess{\emph{ClientHello1:} ($g^x, \mathsf{Enc}(\kpubsni, (\sni, nonce), g^x)$)}{cl}{at}
+   \nextlevel[2]  
+   \mess{\emph{ClientHello1:} ($g^x, \mathsf{Enc}(\kpubsni, (\sni, nonce), g^x)$, Ticket[SNI=X])}{at}{sr}
+   \nextlevel[2]
+   \action*{\laction{Compare SNIs:}{
+       \text{Accept ticket if} \sni \text{ matches } X}}{sr}
+   \nextlevel[4]
+   \mess{\emph{Second Flight:} SH, ...}{sr}{at}
+   \nextlevel[2]
+   \action*{\laction{Check for resumption:}{
+       \sni = X \text{if PSK accepted}}}{at}
+     \nextlevel[4]
+ \end{msc}
+}
+\end{center}
+\label{fig:ticket-attack}
+\end{figure}
+
+This is a failure of binding: currently, ESNI is not bound enough of the ClientHello. (All of the proposals described
+in Section \ref{sec:proposals} prevent this attack in the same way: they bind the ESNI to the entire ClientHello. 
+If the attacker attaches their own PSK, then this invalidates the binding, thus preventing the mix-and-match. None of 
+this depends on the confidentiality of the ClientHello.)
 
 \section{Core Protocol} \label{sec:core} % Basic anonymous DH model (handshake secret integrity)
 
 \todo[inline]{This is still work in progress undergoing refinements.}
 
+In general, the problems above seem to stem from the same problems: (1) ESNI contents are not
+fully bound to the ClientHello, and (2) ESNI contents are not fully bound to the rest of the TLS
+handshake. In this section, we describe an ideal ESNI protocol that addresses these shortcomings.
 At its core, ESNI is a protocol between a client and server that aims to provide the following guarantees:
 
 %
@@ -992,6 +1026,84 @@ It has the following properties:
   which states that servers ``SHOULD NOT attempt to validate multiple binders.''
 \end{itemize}
 %
+
+\appendix
+
+\section{Attack Flow Discussion}
+\subsection{HRR Attack}
+
+With the HRR attack from \label{sec:known-attacks}, we now examine why each of the variants
+described above prevents the attack. In each case, the attacker is unable to determine the handshake keys and
+therefore is not able to decrypt the certificate.
+
+\begin{itemize}
+ \item The ``proxy transformation'' approach \emph{assumes} that
+   the server is going to use the CH1 SNI but then mixes in
+   the nonce from CH1. The result is that although the attacker
+   knows $ss$, he will not be able to determine the handshake
+   keys.
+
+  \item The ``tunnel transformation'' approach is agnostic about
+   whether the server is going to use the CH1 SNI or the CH2
+   SNI. However, as with the proxy transformation approach,
+   the attacker does not know the nonce and therefore is unable
+   to determine the handshake keys.
+
+  \item The ``key schedule injection'' approach is also agnostic
+   about whether the server uses the CH1 SNI or the CH2 SNI,
+   but because it injects secret information from the ESNI
+   encryption into the key schedule, the attacker is unable
+   to determine the handshake keys.
+\end{itemize}
+
+In the first two variants, the secrecy of the handshake
+keys is provided by having the transcript be secret.
+In the last variant, the secrecy of the handshake keys
+is provided by explicitly including secret information
+from the ESNI encryption into the key schedule. The diagram
+below shows this, The key step is that $hk$ is derived from
+$ss$ plus some secret, which is unknown to the attacker,
+and therefore the attacker is unable
+to re-derive $hk$.
+
+\begin{figure}[th!]
+\begin{center}
+\resizebox{0.8\columnwidth}{!}{\begin{msc}{}
+ \drawframe{none}
+ \setlength{\topheaddist}{0cm}
+ \setlength{\instdist}{10.5cm}
+ \setlength{\instwidth}{1.75cm}
+ \declinst{cl}{}{Client $C$}
+ \declinst{at}{}{Att. $A$}
+ \declinst{sr}{}{Server $S$}
+ \nextlevel[2]
+ \nextlevel
+ \mess{\emph{ClientHello1:} ($g^x, \mathsf{Enc}(\kpubsni, (\sni, nonce), g^x)$)}{cl}{sr}
+ \nextlevel[2]
+ \mess{\emph{HRR:} (...)}{sr}{cl}
+ \nextlevel[2]
+ \mess{\emph{ClientHello2:} ($g^{x'}, \mathsf{Enc}(\kpubsni, (\sni, nonce), g^{x'})$)}{cl}{at}
+ \nextlevel[2]
+ \mess{\emph{ClientHello2:} ($g^{a}, \mathsf{Enc}(\kpubsni, (dummysni, dummynonce), g^{a})$)}{at}{sr}
+ \nextlevel    
+ \action*{\laction{Derive Keys:}{
+     ss = \dh{g^a}{g^y} \\
+     hk = \kdf{ss + secret} \\            
+ }}{sr}
+ \nextlevel[5]
+ \mess{\emph{Second Flight:} SH, $\mathsf{Enc}(ss, (EE=dummynonce, CERT=Cert, ...))$}{sr}{at}
+ \nextlevel[2]
+ \action*{\laction{Derive Keys:}{
+     ss = \dh{g^a}{g^y} \\
+     hk = \kdf{ss + ??} \\                  
+   }}{at}
+ \nextlevel[4]  
+ \end{msc}
+}
+
+\end{center}
+\caption{Modified HRR Attack.}
+\end{figure}
 
 \bibliographystyle{plain}
 \bibliography{references}

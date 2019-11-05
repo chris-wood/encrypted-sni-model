@@ -107,6 +107,8 @@
 \def\sni{\mathit{sni}}
 \def\ksni{g^s}
 \def\ksnipriv{s}
+\def\kpubsni{\mathsf{K_{sni}^{pub}}}
+\def\kprivsni{\mathsf{K_{sni}^{priv}}}
 
 \def\seal#1#2#3#4{\mathsf{AEADEncrypt}(#1,#2,#3,#4)}
 \def\open#1#2#3#4{\mathsf{AEADDecrypt}(#1,#2,#3,#4)}
@@ -122,92 +124,12 @@
 \newtheorem{definition}{Definition}[section]
 
 \title{Formal Analysis of Encrypted SNI}
-\author{No Name}
+\author{Karthik Barghavan, Eric Rescorla, Christopher A. Wood}
 \date{\today}
 
 \begin{document}
 
 \maketitle
-
-\begin{comment}
-# Outline
-- ESNI use cases, overview, and desired security goals:
-    - Use cases:
-        - Name privacy (coupled with DNS) against "active" attacker (modulo traffic analysis), local service discovery
-    - Operational requirements and criteria: (listed from the draft)
-    - Design overview:
-        - Summary of draft 4
-        - Overview of related designs
-    - Four security/privacy requirements:
-        - ESNI privacy (requirement #2):
-            1. Both endpoints agree on the context
-            2. Agreement implies knowledge of SNI and key share
-            3. Client has proof that server has private ESNI key
-    - Passive attacker: 
-        - Probabilistic public key encryption (is sufficient?)
-    - Known active attacks and observations:
-        - Probing (client offline, draft 4): Differences in service configurations can leak information.
-        - HRR mix and match (client offline, draft 4): Attacker-chosen key share, client-chosen SNI.
-        - Server reaction attack (client offline, draft 4): Use ticket and server reaction for dictionary attack.
-        - Client reaction attacks (earlier draft, client online): Include nonce so that same entity which sent certificate actually processed the ESNI value.
-        <!-- - HRR trial decryption (client offline): Client-chosen SNI, server-chosen key share. -->
-        <!-- - PSK and ENSI (draft 4): Change CH ESNI value to be attacker-controlled, and server aborts or not based on SNI+PSK equality -->
-- Basic anonymous DH model (handshake secret integrity):
-    - (Challenge response with the nonce)
-    - Two messages (CH, SH), and proof
-    - Four messages (CH1, HRR, CH2, SH), and proof
-- Handshake side channels
-    - (Data about handshake message size distribution?)
-    - (Application data side channels -- defer to future work?)
-    - CH and SH generation functions and requirements
-- Integration with TLS
-    - Proxy-based transformation
-    - PSK binder and key schedule injection
-    - (Signalling via SH.Random or explicit SH extension)
-- Implementation and experimentation
-\end{comment}
-
-\begin{comment}
-# Notes
-- Assume that application data transfer leaks nothing about the service.
-
-bindings: cast in terms of contexts (transcripts)
-Backward binding: integrity for ClientHello
-Forward binding: 
-- want to detect deletion of SNI
-- proxy needs DH secrets to determine the right transcript -- can't be two entities on the client side
-- could treat origin padding as a configuration
-- GeneraetSH must be done at the proxy, and not based on origin servers. Can get away with unmodified servers (modulo template)
-- GeneraetCH/SH are the baseline properties -- show that adding forward/backward binding keeps existing properties while giving new properties
-  - These may be determined by checkboxes. If any two F's are the same, then the privacy properties hold.
-  - Q: should ACME be issuing certificates of a certain length
-
-- flipping bits in CH should cause handshake keys to differ (Kazuho's does NOT do this, and there's an oracle at the client handshake)
-- always need backwards binding (for messages, but possibly based on the entire transcript?)
-- kazuho: enumerate domains and trial decrypt based on all possible transcripts
-
-What we want to hide:
-- SNI value itself
-- A connection negotiated ESNI
-- Whether the ESNI capability
-- Whether the client offered ESNI
-
-Requirements:
-1. TLS agrees on SNI (forward binding, native to TLS)
-2. TLS+ESNI gives us (1) and protects SNI privacy (backward binding)
-  - 1/k anonymity, without forward secrecy
-
-Optional:
-3. TLS+ESNI gives (1-2) and protects the fact that ESNI was chosen
-4. TLS+ESNI (1-3), plus whether the client offered ESNI
-
-
-%%% Agenda:
-%** Writeup review
-%** ProVerif basic model with attacks -- should the ServerHello have a signal?
-%** Writeup of how Kazuho/Steven PRs satisfy the basic model
-%** Game-based definition (port)
-\end{comment}
 
 \tableofcontents
 
@@ -233,7 +155,7 @@ material, such as ESNI and certificate private keys. Extensions to account for s
 (see Section \ref{sec:security}) are described, though not modeled, as there are multiple ways to build 
 this property into the protocol. All models and code can be found online at \url{https://github.com/chris-wood/reftls}.
 
-\textbf{Game-Based Analysis.} We define a game-based definition of ESNI security to complement the symbolic model.
+% \textbf{Game-Based Analysis.} We define a game-based definition of ESNI security to complement the symbolic model.
 
 \section{Encrypted SNI Overview}
 
@@ -278,20 +200,6 @@ for Encrypted SNI \cite{requirements}, described below:
 \end{compactitem}
 %
 
-
-% \begin{figure}
-% \begin{minipage}[c]{.45\textwidth}
-% \center
-% \includegraphics[scale=0.5]{esni_modes_shared.png}
-% \end{minipage}
-% \begin{minipage}[c]{.45\textwidth}
-% \center
-% \includegraphics[scale=0.5]{esni_modes_split.png}
-% \end{minipage}
-% \caption{fig:modes}
-% \label{Left: shared mode. Right: split mode.}
-% \end{figure}
-
 \subsection{Security and Privacy Goals} \label{sec:security}
 ESNI assumes a standard active and on-path Dolev-Yao attacker that can arbitrarily drop, tamper, 
 replay, and forward messages from clients. Fundamentally, a TLS handshake that negotiates ESNI should 
@@ -311,41 +219,7 @@ We may optionally want to hide the fact that ESNI was negotiated, as per the ``d
 this is primarily only deployment concern. Furthermore, we may also want to hide the fact that a client offered
 ESNI in its handshake. This may be useful for clients that wish to GREASE \cite{ietf-tls-grease-04} the extension.
 
-\subsection{Draft-04 Design Overview and Known Attacks} \label{sec:known-attacks}
-Figure \ref{fig:draft4} shows the ESNI design in draft-04 of the protocol. 
-
-\begin{figure}[th!]
-\begin{center}
-\resizebox{0.8\columnwidth}{!}{\begin{msc}{}
-  \drawframe{none}
-  \setlength{\topheaddist}{0cm}
-  \setlength{\instdist}{8.5cm}
-  \setlength{\instwidth}{1.75cm}
-  \declinst{cl}{}{Client $C$}
-  \declinst{sr}{}{Server $S$}
-  \action*{$\mathit{Knows}\ \sni, \ksni, \psk$}{cl}
-  \action*{$\mathit{Knows}\ \ksnipriv, (\skp{S},\pkp{S}), \psk$}{sr}
-  \nextlevel[2]
-  \nextlevel
-  \mess{\emph{Client Flight} ($S, g^x, \mathsf{Enc}(K_s, (r, \sni))$)}{cl}{sr}
-  \nextlevel[2]
-  \action*{\laction{Derive Keys:}{
-    ss = \dh{g^y}{g^x} \\
-    k = \kdfcontext{ss}{"esni"}}}{sr}
-  \nextlevel[5]
-  \mess{\emph{Server Flight} ($g^y,\mathsf{enc}(k, r)$)}{sr}{cl}
-  \nextlevel
-  \action*{\laction{Derive ESNI Keys:}{
-    ss = \dh{g^x}{g^y} \\
-    k = \kdfcontext{ss}{"esni"}}}{cl}
-  \nextlevel[3]
-  \end{msc}
-}
-\end{center}
-\caption{Simple ESNI Protocol without resumption or HelloRetryRequest support.}
-\label{fig:draft4}
-\end{figure}
-
+\subsection{Existing Design Overview and Known Attacks} \label{sec:known-attacks}
 Early versions of ESNI did not achieve the desired security and privacy goals. 
 For example, the first version was vulnerable to a certificate-based 
 client reaction attack shown in Figure \ref{fig:attack1-client-reaction}. The SNI leak
@@ -353,9 +227,8 @@ occurs if clients processed the certificate message before verifying the Certifi
 signature. Specifically, if clients abort upon SNI mismatch between what they sent
 and what was received in the certificate, an attacker attempt to MITM an ESNI connection
 with a certificate of its choosing and try to learn the client's SNI.
-The core problem was that servers did not signal to clients whether or not they processed 
-the ESNI extension. Adding a nonce to the server's response implicitly authenticates
-that the server processed the SNI.
+
+%% TODO(caw): include cut-and-paste attack
 
 \begin{figure}[th!]
 \begin{center}
@@ -370,9 +243,9 @@ that the server processed the SNI.
   \action*{$\mathit{Knows}\ \ksnipriv, (\skp{S},\pkp{S})$}{sr}
   \nextlevel[2]
   \nextlevel
-  \mess{\emph{Client Flight} ($S, g^x, \mathsf{Enc}(K_s, \sni)$)}{cl}{sr}
+  \mess{\emph{Client Flight} ($S, g^x, \mathsf{HPKESeal}(\ksni, \sni)$)}{cl}{sr}
   \nextlevel[2]
-  \mess{\emph{Server Flight} ($g^y,\mathsf{enc}(k, \cert, ...), $)}{sr}{cl}
+  \mess{\emph{Server Flight} ($g^y,\mathsf{Enc}(g^{xy}, \cert, ...), $)}{sr}{cl}
   \nextlevel
   \action*{\laction{Check SNI:}{
     \text{Abort if } \sni \text{ does not match } \cert}}{cl}
@@ -380,10 +253,45 @@ that the server processed the SNI.
   \end{msc}
 }
 \end{center}
-\caption{Simple ESNI Protocol without resumption or HelloRetryRequest support.}
+\caption{Client reaction attack.}
+\label{fig:attack1-client-reaction}
+\end{figure}
+
+The core problem was that servers did not signal to clients whether or not they processed 
+the ESNI extension. Adding a nonce to the server's response implicitly authenticates
+that the server processed the SNI. Figure \ref{fig:draft4} shows the ESNI design in draft-04 of the protocol. 
+
+\begin{figure}[th!]
+\begin{center}
+\resizebox{0.8\columnwidth}{!}{\begin{msc}{}
+  \drawframe{none}
+  \setlength{\topheaddist}{0cm}
+  \setlength{\instdist}{8.5cm}
+  \setlength{\instwidth}{1.75cm}
+  \declinst{cl}{}{Client $C$}
+  \declinst{sr}{}{Server $S$}
+  \action*{$\mathit{Knows}\ \sni, \ksni, \psk$}{cl}
+  \action*{$\mathit{Knows}\ \ksnipriv, (\skp{S},\pkp{S}), \psk$}{sr}
+  \nextlevel[2]
+  \nextlevel
+  \mess{\emph{Client Flight} ($S, g^x, \mathsf{HPKESeal}(K_s, (r, \sni))$)}{cl}{sr}
+  \nextlevel[2]
+  \action*{\laction{Derive Keys:}{
+    ss = \dh{g^y}{g^x} \\
+    k = \kdfcontext{ss}{"esni"}}}{sr}
+  \nextlevel[5]
+  \mess{\emph{Server Flight} ($g^y,\mathsf{Enc}(k, r)$)}{sr}{cl}
+  \nextlevel
+  \action*{\laction{Derive ESNI Keys:}{
+    ss = \dh{g^x}{g^y} \\
+    k = \kdfcontext{ss}{"esni"}}}{cl}
+  \nextlevel[3]
+  \end{msc}
+}
+\end{center}
+\caption{draft-ietf-tls-esni-04 protocol (without HRR).}
 \label{fig:draft4}
 \end{figure}
-%
 
 Despite this fix, draft-04 of ESNI does not achieve the necessary requirements stated above. We
 describe some more attacks on ESNI deployment configurations and the protocol below.
@@ -400,7 +308,60 @@ shares from the second ClientHello.\footnote{This is not entirely far-fetched, a
 process the SNI upon the first ClientHello in order to determine HelloRetryRequest parameters such
 as supported ciphersuites.} This allows an on-path adversary to hijack a HelloRetryRequest, send a
 second ClientHello with its own key shares, and then successfully decrypt the server flight to learn
-the certificate.
+the certificate. This attack flow is shown in Figure \ref{fig:hrr-attack}.
+
+\begin{figure}[th!]
+ \begin{center}
+ \resizebox{0.8\columnwidth}{!}{\begin{msc}{}
+   \drawframe{none}
+   \setlength{\topheaddist}{0cm}
+   \setlength{\instdist}{10.5cm}
+   \setlength{\instwidth}{1.75cm}
+   \declinst{cl}{}{Client $C$}
+   \declinst{at}{}{Attacker $A$}
+   \declinst{sr}{}{Server $S$}
+   \action*{$\mathit{Knows}\ \sni, \ksni$}{cl}
+   \action*{$\mathit{Knows}\ \ksnipriv$}{sr}
+   \nextlevel[2]
+   \nextlevel
+   \mess{\emph{ClientHello1:} ($g^x, \mathsf{HPKESeal}(\ksni, (\sni, nonce), g^x)$)}{cl}{sr}
+   \nextlevel[2]
+   \mess{\emph{HRR:} (...)}{sr}{cl}
+   \nextlevel[2]
+   \mess{\emph{ClientHello2:} ($g^{x'}, \mathsf{HPKESeal}(\ksni, (\sni, nonce), g^{x'})$)}{cl}{at}
+   \nextlevel[2]
+   \mess{\emph{ClientHello2:} ($g^{a}, \mathsf{HPKESeal}(\ksni, (dummysni, dummynonce), g^{a})$)}{at}{sr}
+   \nextlevel    
+   \action*{\laction{Derive Keys:}{
+     ss = \dh{g^a}{g^y} \\
+   }}{sr}
+   \nextlevel[4]
+   \mess{\emph{Second Flight:} SH, $\mathsf{Enc}(ss, (EE=dummynonce, CERT=Cert, ...))$}{sr}{at}
+   \nextlevel[2]
+   \action*{\laction{Derive Keys:}{
+     ss = \dh{g^a}{g^y} \\
+   }}{at}
+   \nextlevel[4]
+   \action*{\laction{Decrypt Cert:}{
+     CERT = \mathsf{Dec}(ss, ...) \\
+   }}{at}
+   \nextlevel[4]
+
+    \end{msc}
+ }
+\end{center}
+\caption{Active HRR hijack mismatch.}
+\label{fig:hrr-attack}
+\end{figure}
+
+This reveals the basic source of the problem: in order to prevent
+mix-and-match attacks on the client's key share, the ESNI encryption
+binds in $g^x$. However, if the server uses the SNI from first ClientHello and then
+the key share from the second ClientHello, which is attacker-controlled, then the 
+attacker is free to generate their own ESNI extension containing a bogus ESNI 
+and nonce. The server correctly verifies that these correspond to $g^a$ but because
+these are all supplied by the attacker, this check succeeds and the server encrypts 
+the certificate to the attacker with a key known to the attacker.
 
 \textbf{Server Ticket Reaction Attacks}. The ESNI contents are not fully bound to the entire 
 ClientHello in draft-04. This means a ClientHello with ESNI \emph{and} no resumption PSK can be 
